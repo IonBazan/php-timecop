@@ -1,17 +1,17 @@
 --TEST--
-Test for DateTimeImmutable/TimecopDateTimeImmutable/TimecopOrigDateTimeImmutable inheritance
+Test for DateTimeImmutable/TimecopDateTimeImmutable/TimecopOrigDateTimeImmutable inheritance when function override is enabled
 --SKIPIF--
 <?php
 $required_version = "5.5";
 $required_func = array("timecop_freeze");
-$required_class = array("TimecopDateTimeImmutable", "TimecopOrigDateTimeImmutable");
+$required_class = array("TimecopOrigDateTime", "TimecopDateTimeImmutable", "TimecopOrigDateTimeImmutable");
 include(__DIR__."/../tests-skipcheck.inc.php");
 --INI--
 date.timezone=America/Los_Angeles
-timecop.func_override=0
+timecop.func_override=1
 --FILE--
 <?php
-$dt0 = new DateTime("2012-02-29 01:23:45");
+$dt0 = new TimecopOrigDateTime("2012-02-29 01:23:45");
 timecop_freeze($dt0);
 
 $dt1 = new DateTimeImmutable();
@@ -56,6 +56,6 @@ bool(true)
 bool(true)
 bool(true)
 ===
-bool(false)
+bool(true)
 bool(true)
 bool(false)
