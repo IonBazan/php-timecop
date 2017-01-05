@@ -1494,10 +1494,7 @@ PHP_METHOD(TimecopDateTime, __construct)
 	zval *fixed_time, *fixed_timezone;
 	zval *obj = getThis();
 
-	nparams = ZEND_NUM_ARGS();
-	if (nparams < 2) {
-		nparams = 2;
-	}
+	nparams = MAX(ZEND_NUM_ARGS(), 2);
 	params = (zval ***) safe_emalloc(nparams, sizeof(zval **), 0);
 
 	if (zend_get_parameters_array_ex(ZEND_NUM_ARGS(), params) == FAILURE) {
