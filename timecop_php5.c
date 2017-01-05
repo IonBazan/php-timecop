@@ -335,7 +335,7 @@ static inline void timecop_call_original_constructor(zval **obj, zend_class_entr
 static inline void timecop_call_constructor(zval **obj, zend_class_entry *ce, zval ***params, int param_count TSRMLS_DC);
 static void timecop_call_constructor_ex(zval **obj, zend_class_entry *ce, zval ***params, int param_count, int call_original TSRMLS_DC);
 
-static void simple_call_function(const char *function_name, zval **retval_ptr_ptr, zend_uint param_count, zval **params[] TSRMLS_DC);
+static void _call_function_with_params(const char *function_name, zval **retval_ptr_ptr, zend_uint param_count, zval **params[] TSRMLS_DC);
 static zval *php_timecop_date_instantiate(zend_class_entry *pce, zval *object TSRMLS_DC);
 
 /* {{{ timecop_module_entry
@@ -755,7 +755,7 @@ static int fill_mktime_params(zval ***params, const char *date_function_name, in
 		INIT_ZVAL(format);
 		ZVAL_STRING(&format, formats[i], 0);
 
-		simple_call_function(date_function_name, &retval_ptr, 2, date_params TSRMLS_CC);
+		_call_function_with_params(date_function_name, &retval_ptr, 2, date_params TSRMLS_CC);
 		if (retval_ptr) {
 			ZVAL_ZVAL(*params[i], retval_ptr, 1, 1);
 		}
@@ -940,7 +940,7 @@ static void _timecop_call_function(INTERNAL_FUNCTION_PARAMETERS, const char *fun
 		argc++;
 	}
 
-	simple_call_function(function_name, &retval_ptr, argc, params TSRMLS_CC);
+	_call_function_with_params(function_name, &retval_ptr, argc, params TSRMLS_CC);
 
 	efree(params);
 
@@ -976,7 +976,7 @@ static void _timecop_call_mktime(INTERNAL_FUNCTION_PARAMETERS, const char *mktim
 		php_error_docref(NULL TSRMLS_CC, E_STRICT, "You should be using the time() function instead");
 	}
 
-	simple_call_function(mktime_function_name, &retval_ptr, params_size, params TSRMLS_CC);
+	_call_function_with_params(mktime_function_name, &retval_ptr, params_size, params TSRMLS_CC);
 
 	for (i = argc; i < MKTIME_NUM_ARGS; i++) {
 		zval_ptr_dtor(&filled_value[i]);
@@ -1664,7 +1664,7 @@ static void timecop_call_constructor_ex(zval **obj, zend_class_entry *ce, zval *
 	zend_call_method(obj, ce, NULL, func_name, func_name_len, NULL, param_count, arg1, arg2 TSRMLS_CC);
 }
 
-static void simple_call_function(const char *function_name, zval **retval_ptr_ptr, zend_uint param_count, zval **params[] TSRMLS_DC)
+static void _call_function_with_params(const char *function_name, zval **retval_ptr_ptr, zend_uint param_count, zval **params[] TSRMLS_DC)
 {
 	zval callable;
 

@@ -284,7 +284,7 @@ static int get_current_time(tc_timeval *now);
 static inline void timecop_call_original_constructor(zval *obj, zend_class_entry *ce, zval *params, int param_count);
 static inline void timecop_call_constructor(zval *obj, zend_class_entry *ce, zval *params, int param_count);
 static void timecop_call_constructor_ex(zval *obj, zend_class_entry *ce, zval *params, int param_count, int call_original);
-static void simple_call_function(const char *function_name, zval *retval_ptr, uint32_t param_count, zval params[]);
+static void _call_function_with_params(const char *function_name, zval *retval_ptr, uint32_t param_count, zval params[]);
 
 /* {{{ timecop_module_entry
  */
@@ -703,7 +703,7 @@ static int fill_mktime_params(zval *fill_params, const char *date_function_name,
 
 	for (i = from; i < MKTIME_NUM_ARGS; i++) {
 		ZVAL_STRING(&params[0], formats[i]);
-		simple_call_function(date_function_name, &fill_params[i], 2, params);
+		_call_function_with_params(date_function_name, &fill_params[i], 2, params);
 		zval_ptr_dtor(&params[0]);
 	}
 
@@ -863,7 +863,7 @@ static void _timecop_call_function(INTERNAL_FUNCTION_PARAMETERS, const char *fun
 		param_count++;
 	}
 
-	simple_call_function(function_name, return_value, param_count, params);
+	_call_function_with_params(function_name, return_value, param_count, params);
 
 	efree(params);
 }
@@ -895,7 +895,7 @@ static void _timecop_call_mktime(INTERNAL_FUNCTION_PARAMETERS, const char *mktim
 		php_error_docref(NULL, E_STRICT, "You should be using the time() function instead");
 	}
 
-	simple_call_function(mktime_function_name, return_value, param_count, params);
+	_call_function_with_params(mktime_function_name, return_value, param_count, params);
 
 	for (i = ZEND_NUM_ARGS(); i < MKTIME_NUM_ARGS; i++) {
 		zval_ptr_dtor(&params[i]);
@@ -1295,18 +1295,35 @@ PHP_FUNCTION(timecop_date_create)
 PHP_FUNCTION(timecop_date_create_from_format)
 {
 	zval *timezone_object = NULL;
-	char *time_str = NULL, *format_str = NULL;
-	size_t time_str_len = 0, format_str_len = 0;
+	zend_string *orig_format, *orig_time, *format, *time;
+	zval *params;
+	char now_format[]="Y-m-d H:i:s.u", now_time[]="2015-02-03 04:05:06.780000";
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "ss|O", &format_str, &format_str_len, &time_str, &time_str_len, &timezone_object, php_date_get_timezone_ce()) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "SS|O", &orig_format, &orig_time, &timezone_object, php_date_get_timezone_ce()) == FAILURE) {
 		RETURN_FALSE;
 	}
 
-	object_init_ex(return_value, TIMECOP_G(ce_DateTime));
+	params = (zval *)safe_emalloc(ZEND_NUM_ARGS(), sizeof(zval), 0);
 
-	if (!php_date_initialize(Z_PHPDATE_P(return_value), time_str, time_str_len, format_str, timezone_object, 0)) {
-		RETURN_FALSE;
+	format = zend_string_alloc(ZSTR_LEN(orig_format)+strlen(now_format), 0);
+	time = zend_string_alloc(ZSTR_LEN(orig_time)+strlen(now_time), 0);
+
+	memcpy(ZSTR_VAL(format), now_format, strlen(now_format));
+	memcpy(ZSTR_VAL(format)+strlen(now_format), ZSTR_VAL(orig_format), ZSTR_LEN(orig_format)+1);
+	memcpy(ZSTR_VAL(time), now_time, strlen(now_time));
+	memcpy(ZSTR_VAL(time)+strlen(now_time), ZSTR_VAL(orig_time), ZSTR_LEN(orig_time)+1);
+
+	ZVAL_NEW_STR(&params[0], format);
+	ZVAL_NEW_STR(&params[1], time);
+	if (timezone_object) {
+		params[2] = *timezone_object;
 	}
+
+	_call_function_with_params(ORIG_FUNC_NAME("date_create_from_format"), return_value, ZEND_NUM_ARGS(), params);
+
+	zval_ptr_dtor(&params[0]);
+	zval_ptr_dtor(&params[1]);
+	efree(params);
 }
 /* }}} */
 
@@ -1361,10 +1378,7 @@ PHP_METHOD(TimecopDateTime, __construct)
 	zval fixed_time, fixed_timezone;
 	zval *obj = getThis();
 
-	nparams = ZEND_NUM_ARGS();
-	if (nparams < 2) {
-		nparams = 2;
-	}
+	nparams = MAX(ZEND_NUM_ARGS(), 2);
 	params = (zval *)safe_emalloc(nparams, sizeof(zval), 0);
 
 	if (zend_get_parameters_array_ex(ZEND_NUM_ARGS(), params) == FAILURE) {
@@ -1520,7 +1534,7 @@ static void timecop_call_constructor_ex(zval *obj, zend_class_entry *ce, zval *p
 	zend_call_method(obj, ce, NULL, func_name, func_name_len, NULL, param_count, arg1, arg2);
 }
 
-static void simple_call_function(const char *function_name, zval *retval_ptr, uint32_t param_count, zval *params)
+static void _call_function_with_params(const char *function_name, zval *retval_ptr, uint32_t param_count, zval *params)
 {
 	zval callable;
 	ZVAL_STRING(&callable, function_name);
