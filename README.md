@@ -24,7 +24,7 @@ extension=timecop.so
 ## SYSTEM REQUIREMENTS
 
 - OS: Linux, FreeBSD, MacOSX
-- PHP: 5.3.x, 5.4.x, 5.5.x, 5.6.x, 7.0.x, 7.1.x
+- PHP: 5.3.6 - 7.1.x
 - SAPI: Apache, CLI
   - Other SAPIs are not tested, but there is no SAPI-dependent code.
 - non-ZTS(recommended), ZTS
@@ -51,8 +51,12 @@ extension=timecop.so
   - `unixtojd()`
   - `DateTime::_construct()`
   - `DateTime::createFromFormat()` (PHP >= 5.3.4)
+  - `DateTimeImmutable::_construct()` (PHP >= 5.5.0)
+  - `DateTimeImmutable::createFromFormat()` (PHP >= 5.5.0)
   - `date_create()`
   - `date_create_from_format()` (PHP >= 5.3.4)
+  - `date_create_immutable()` (PHP >= 5.5.0)
+  - `date_create_immutable_from_format()` (PHP >= 5.5.0)
 - Rewrite value of the following global variables when the time has been moved.
   - `$_SERVER['REQUEST_TIME']`
 
@@ -99,11 +103,8 @@ var_dump((new DateTime())->format("c")); // string(25) "2017-01-01T00:00:05+00:0
 ## CHANGELOG
 
 ### version 1.2.2(alpha), 2017/1/4
-- Implement Implement `TimecopDateTimeImmutable` class and `timecop_date_create_immutable()`, `timecop_date_create_immutable_from_format()` functions.
-- Now `timecop_date_create_from_format()` returns DateTime instance
-
-### version 1.2.1(alpha), 2016/12/30
-- Fix the year 2038 problem for PHP 7.x on 64bit Windows.
+- Implement `TimecopDateTimeImmutable` class and `timecop_date_create_immutable()`, `timecop_date_create_immutable_from_format()` functions.
+- Now `timecop_date_create_from_format()` returns `DateTime` instance
 
 ### version 1.2.0(alpha), 2016/12/30
 - Big internal change (without BC break): handle microseconds accurately in time traveling.
