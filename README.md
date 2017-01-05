@@ -23,7 +23,7 @@ extension=timecop.so
 
 ## SYSTEM REQUIREMENTS
 
-- OS: Linux, FreeBSD, MacOSX
+- OS: Linux, MacOSX
 - PHP: 5.3.6 - 7.1.x
 - SAPI: Apache, CLI
   - Other SAPIs are not tested, but there is no SAPI-dependent code.
