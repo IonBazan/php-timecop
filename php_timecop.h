@@ -68,6 +68,10 @@ PHP_FUNCTION(timecop_date_create_from_format);
 PHP_FUNCTION(timecop_date_create_immutable);
 PHP_FUNCTION(timecop_date_create_immutable_from_format);
 #endif
+#if !defined(PHP_VERSION_ID) || PHP_VERSION_ID < 50300
+PHP_FUNCTION(date_timestamp_set);
+PHP_FUNCTION(date_timestamp_get);
+#endif
 
 PHP_METHOD(TimecopDateTime, __construct);
 PHP_METHOD(TimecopOrigDateTime, __construct);
@@ -79,11 +83,6 @@ PHP_METHOD(TimecopOrigDateTimeImmutable, __construct);
 
 PHP_METHOD(Timecop, freeze);
 PHP_METHOD(Timecop, travel);
-
-#if !defined(PHP_VERSION_ID) || PHP_VERSION_ID < 50300
-PHP_METHOD(TimecopDateTime, getTimestamp);
-PHP_METHOD(TimecopDateTime, setTimestamp);
-#endif
 
 typedef enum timecop_mode_t {
 	TIMECOP_MODE_REALTIME,

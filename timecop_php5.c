@@ -192,11 +192,13 @@ ZEND_END_ARG_INFO()
 #endif
 
 #if !defined(PHP_VERSION_ID) || PHP_VERSION_ID < 50300
-ZEND_BEGIN_ARG_INFO_EX(arginfo_timecop_date_method_timestamp_set, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_date_timestamp_set, 0, 0, 2)
+        ZEND_ARG_INFO(0, object)
         ZEND_ARG_INFO(0, unixtimestamp)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO(arginfo_timecop_date_method_timestamp_get, 0)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_date_timestamp_get, 0, 0, 1)
+        ZEND_ARG_INFO(0, object)
 ZEND_END_ARG_INFO()
 #endif
 
@@ -230,6 +232,10 @@ const zend_function_entry timecop_functions[] = {
 	PHP_FE(timecop_date_create_immutable, arginfo_timecop_date_create)
 	PHP_FE(timecop_date_create_immutable_from_format, arginfo_timecop_date_create_from_format)
 #endif
+#if !defined(PHP_VERSION_ID) || PHP_VERSION_ID < 50300
+	PHP_FE(date_timestamp_set, arginfo_date_timestamp_set)
+	PHP_FE(date_timestamp_get, arginfo_date_timestamp_get)
+#endif
 	{NULL, NULL, NULL}
 };
 /* }}} */
@@ -251,12 +257,6 @@ static zend_function_entry timecop_funcs_date[] = {
 #if PHP_VERSION_ID >= 50300
    PHP_ME_MAPPING(createFromFormat, timecop_date_create_from_format, arginfo_timecop_date_create_from_format,
 		   ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
-#endif
-#if !defined(PHP_VERSION_ID) || PHP_VERSION_ID < 50300
-	PHP_ME(TimecopDateTime, getTimestamp,
-				   arginfo_timecop_date_method_timestamp_get, 0)
-	PHP_ME(TimecopDateTime, setTimestamp,
-				   arginfo_timecop_date_method_timestamp_set, 0)
 #endif
 	{NULL, NULL, NULL}
 };
@@ -881,7 +881,7 @@ static int get_formatted_mock_time(zval *time, zval *timezone_obj, zval **retval
 		sprintf(buf, "Y-m-d H:i:s.%06ld", fixed_usec);
 		INIT_ZVAL(format_str);
 		ZVAL_STRING(&format_str, buf, 0);
-		zend_call_method_with_1_params(&dt, TIMECOP_G(ce_DateTime), NULL, "settimestamp", NULL, fixed_sec);
+		zend_call_method_with_2_params(NULL, NULL, NULL, "date_timestamp_set", NULL, dt, fixed_sec);
 		zend_call_method_with_0_params(&dt, TIMECOP_G(ce_DateTime), NULL, "gettimezone", retval_timezone);
 		zend_call_method_with_1_params(&dt, TIMECOP_G(ce_DateTime), NULL, "format", retval_time, &format_str);
 
@@ -1279,7 +1279,7 @@ static int get_time_from_datetime(tc_timeval *tp, zval *dt TSRMLS_DC)
 	zval *sec, *usec;
 	zval u_str;
 
-	zend_call_method_with_0_params(&dt, Z_OBJCE_P(dt), NULL, "gettimestamp", &sec);
+	zend_call_method_with_1_params(NULL, NULL, NULL, "date_timestamp_get", &sec, dt);
 	INIT_ZVAL(u_str);
 	ZVAL_STRING(&u_str, "u", 0);
 	zend_call_method_with_1_params(&dt, Z_OBJCE_P(dt), NULL, "format", &usec, &u_str);
@@ -1620,50 +1620,50 @@ PHP_METHOD(TimecopOrigDateTimeImmutable, __construct)
 #endif
 
 #if !defined(PHP_VERSION_ID) || PHP_VERSION_ID < 50300
-
-/* {{{ proto long TimecopDateTime::getTimestamp()
-   Gets the Unix timestamp.
+/* {{{ proto DateTime date_timestamp_set(DateTime object, long unixTimestamp)
+   Sets the date and time based on an Unix timestamp.
 */
-PHP_METHOD(TimecopDateTime, getTimestamp)
+PHP_FUNCTION(date_timestamp_set)
 {
-        zval         *object;
-        php_date_obj *dateobj;
-        long          timestamp;
-        int           error;
+	zval         *object;
+	php_date_obj *dateobj;
+	long          timestamp;
 
-        if (zend_parse_method_parameters(ZEND_NUM_ARGS() TSRMLS_CC, getThis(), "O", &object, TIMECOP_G(ce_TimecopDateTime)) == FAILURE) {
-                RETURN_FALSE;
-        }
-        dateobj = (php_date_obj *) zend_object_store_get_object(object TSRMLS_CC);
-        DATE_CHECK_INITIALIZED(dateobj->time, DateTime);
-        timelib_update_ts(dateobj->time, NULL);
+	if (zend_parse_method_parameters(ZEND_NUM_ARGS() TSRMLS_CC, getThis(), "Ol", &object, TIMECOP_G(ce_DateTime), &timestamp) == FAILURE) {
+		RETURN_FALSE;
+	}
+	dateobj = (php_date_obj *) zend_object_store_get_object(object TSRMLS_CC);
+	DATE_CHECK_INITIALIZED(dateobj->time, DateTime);
+	timelib_unixtime2local(dateobj->time, (timelib_sll)timestamp);
+	timelib_update_ts(dateobj->time, NULL);
 
-        timestamp = timelib_date_to_int(dateobj->time, &error);
-        if (error) {
-                RETURN_FALSE;
-        } else {
-                RETVAL_LONG(timestamp);
-        }
+	RETURN_ZVAL(object, 1, 0);
 }
 /* }}} */
 
-/* {{{ proto DateTime TimecopDateTime::getTimestamp(long unixTimestamp)
-   Sets the date and time based on an Unix timestamp. */
-PHP_METHOD(TimecopDateTime, setTimestamp)
+/* {{{ proto long date_timestamp_get(DateTime object)
+   Gets the Unix timestamp.
+*/
+PHP_FUNCTION(date_timestamp_get)
 {
-        zval         *object;
-        php_date_obj *dateobj;
-        long          timestamp;
+	zval         *object;
+	php_date_obj *dateobj;
+	long          timestamp;
+	int           error;
 
-        if (zend_parse_method_parameters(ZEND_NUM_ARGS() TSRMLS_CC, getThis(), "Ol", &object, TIMECOP_G(ce_TimecopDateTime), &timestamp) == FAILURE) {
-                RETURN_FALSE;
-        }
-        dateobj = (php_date_obj *) zend_object_store_get_object(object TSRMLS_CC);
-        DATE_CHECK_INITIALIZED(dateobj->time, DateTime);
-        timelib_unixtime2local(dateobj->time, (timelib_sll)timestamp);
-        timelib_update_ts(dateobj->time, NULL);
+	if (zend_parse_method_parameters(ZEND_NUM_ARGS() TSRMLS_CC, getThis(), "O", &object, TIMECOP_G(ce_DateTime)) == FAILURE) {
+		RETURN_FALSE;
+	}
+	dateobj = (php_date_obj *) zend_object_store_get_object(object TSRMLS_CC);
+	DATE_CHECK_INITIALIZED(dateobj->time, DateTime);
+	timelib_update_ts(dateobj->time, NULL);
 
-        RETURN_ZVAL(object, 1, 0);
+	timestamp = timelib_date_to_int(dateobj->time, &error);
+	if (error) {
+		RETURN_FALSE;
+	} else {
+		RETVAL_LONG(timestamp);
+	}
 }
 /* }}} */
 #endif
