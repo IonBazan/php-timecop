@@ -321,6 +321,7 @@ static long mocked_timestamp();
 
 static int fill_mktime_params(zval ***params, const char *date_function_name, int from TSRMLS_DC);
 static int get_formatted_mock_time(zval *time, zval *timezone_obj, zval **retval_time, zval **retval_timezone TSRMLS_DC);
+static long get_mock_fraction(zval *time, zval *timezone_obj TSRMLS_DC);
 
 static void _timecop_call_function(INTERNAL_FUNCTION_PARAMETERS, const char *function_name, int index_to_fill_timestamp);
 static void _timecop_call_mktime(INTERNAL_FUNCTION_PARAMETERS, const char *mktime_function_name, const char *date_function_name);
@@ -788,17 +789,14 @@ static int fill_mktime_params(zval ***params, const char *date_function_name, in
  *     if ($fixed_sec === FALSE) {
  *         return false;
  *     }
- *     $dt1 = date_create($time, $timezone_obj);
- *     $dt2 = date_create($time, $timezone_obj);
- *     $usec1 = $dt1->format("u");
- *     $usec2 = $dt2->format("u");
- *     if ($usec1 === $usec2) {
- *         $fixed_usec = $usec1;
- *     } else {
+ *     $fixed_usec = get_mock_fraction($time, $timezone_obj);
+ *     if ($fixed_usec === -1) {
  *         $fixed_usec = $now->usec;
  *     }
+ *     $dt = date_create($time, $timezone_obj);
+ *     $dt->setTimestamp($fixed_sec);
  *     $format = sprintf("Y-m-d H:i:s.%06d", $fixed_usec);
- *     $formatted_time = date($format, $fixed_sec);
+ *     $formatted_time = $dt->format($format);
  *     return $formatted_time;
  * }
  */
@@ -807,6 +805,7 @@ static int get_formatted_mock_time(zval *time, zval *timezone_obj, zval **retval
 	zval *fixed_sec, *orig_zonename;
 	zval str_now, now_timestamp;
 	tc_timeval now;
+	long fixed_usec;
 
 	if (TIMECOP_G(timecop_mode) == TIMECOP_MODE_REALTIME) {
 		MAKE_STD_ZVAL(*retval_time);
@@ -847,7 +846,8 @@ static int get_formatted_mock_time(zval *time, zval *timezone_obj, zval **retval
 		zval_ptr_dtor(&orig_zonename);
 	}
 
-	if (Z_TYPE_P(fixed_sec) == IS_BOOL && !Z_BVAL_P(fixed_sec)) { /* $fixed_sec === false */
+	if (Z_TYPE_P(fixed_sec) == IS_BOOL && !Z_BVAL_P(fixed_sec)) {
+		/* $fixed_sec === false */
 		MAKE_STD_ZVAL(*retval_time);
 		ZVAL_FALSE(*retval_time);
 		MAKE_STD_ZVAL(*retval_timezone);
@@ -855,58 +855,37 @@ static int get_formatted_mock_time(zval *time, zval *timezone_obj, zval **retval
 		return -1;
 	}
 
+	fixed_usec = get_mock_fraction(time, timezone_obj TSRMLS_CC);
+	if (fixed_usec == -1) {
+		fixed_usec = now.usec;
+	}
+
 	{
-		zval *dt1, *dt2, *usec1, *usec2;
-		zval null_val, u_str, format_str;
-		long fixed_usec;
+		zval *dt;
+		zval format_str;
 		char buf[64];
 
-		if (timezone_obj == NULL) {
-			INIT_ZVAL(null_val);
-			ZVAL_NULL(&null_val);
-			timezone_obj = &null_val;
-		}
-
-		timecop_call_orig_method_with_2_params(NULL, NULL, NULL, "date_create", &dt1, time, timezone_obj);
-		if (Z_TYPE_P(dt1) == IS_BOOL && !Z_BVAL_P(time)) {
-			MAKE_STD_ZVAL(*retval_time);
-			ZVAL_FALSE(*retval_time);
-			MAKE_STD_ZVAL(*retval_timezone);
-			ZVAL_NULL(*retval_timezone);
-			return -1;
-		}
-
-		timecop_call_orig_method_with_2_params(NULL, NULL, NULL, "date_create", &dt2, time, timezone_obj);
-		if (Z_TYPE_P(dt2) == IS_BOOL && !Z_BVAL_P(time)) {
-			zval_ptr_dtor(&dt1);
-			MAKE_STD_ZVAL(*retval_time);
-			ZVAL_FALSE(*retval_time);
-			MAKE_STD_ZVAL(*retval_timezone);
-			ZVAL_NULL(*retval_timezone);
-			return -1;
-		}
-
-		INIT_ZVAL(u_str);
-		ZVAL_STRING(&u_str, "u", 0);
-		zend_call_method_with_1_params(&dt1, TIMECOP_G(ce_DateTime), NULL, "format", &usec1, &u_str);
-		zend_call_method_with_1_params(&dt1, TIMECOP_G(ce_DateTime), NULL, "format", &usec2, &u_str);
-		convert_to_long(usec1);
-		convert_to_long(usec2);
-		if (Z_LVAL_P(usec1) == Z_LVAL_P(usec2)) {
-			fixed_usec = Z_LVAL_P(usec1);
+		if (timezone_obj == NULL || Z_TYPE_P(timezone_obj) == IS_NULL) {
+			timecop_call_orig_method_with_1_params(NULL, NULL, NULL, "date_create", &dt, time);
 		} else {
-			fixed_usec = now.usec;
+			timecop_call_orig_method_with_2_params(NULL, NULL, NULL, "date_create", &dt, time, timezone_obj);
 		}
+		if (Z_TYPE_P(dt) == IS_BOOL && !Z_BVAL_P(time)) {
+			MAKE_STD_ZVAL(*retval_time);
+			ZVAL_FALSE(*retval_time);
+			MAKE_STD_ZVAL(*retval_timezone);
+			ZVAL_NULL(*retval_timezone);
+			return -1;
+		}
+
 		sprintf(buf, "Y-m-d H:i:s.%06ld", fixed_usec);
 		INIT_ZVAL(format_str);
 		ZVAL_STRING(&format_str, buf, 0);
-		zend_call_method_with_1_params(&dt1, TIMECOP_G(ce_DateTime), NULL, "settimestamp", NULL, fixed_sec);
-		zend_call_method_with_0_params(&dt1, TIMECOP_G(ce_DateTime), NULL, "gettimezone", retval_timezone);
-		zend_call_method_with_1_params(&dt1, TIMECOP_G(ce_DateTime), NULL, "format", retval_time, &format_str);
-		zval_ptr_dtor(&dt1);
-		zval_ptr_dtor(&dt2);
-		zval_ptr_dtor(&usec1);
-		zval_ptr_dtor(&usec2);
+		zend_call_method_with_1_params(&dt, TIMECOP_G(ce_DateTime), NULL, "settimestamp", NULL, fixed_sec);
+		zend_call_method_with_0_params(&dt, TIMECOP_G(ce_DateTime), NULL, "gettimezone", retval_timezone);
+		zend_call_method_with_1_params(&dt, TIMECOP_G(ce_DateTime), NULL, "format", retval_time, &format_str);
+
+		zval_ptr_dtor(&dt);
 	}
 
 	if (fixed_sec) {
@@ -914,6 +893,67 @@ static int get_formatted_mock_time(zval *time, zval *timezone_obj, zval **retval
 	}
 
 	return 0;
+}
+
+/*
+ * get_mock_fraction()
+ *
+ * pseudo code:
+ *
+ * function get_mock_fraction($time, $timezone_obj) {
+ *     $dt1 = date_create($time, $timezone_obj);
+ *     $dt2 = date_create($time, $timezone_obj);
+ *     $usec1 = $dt1->format("u");
+ *     $usec2 = $dt2->format("u");
+ *     if ($usec1 === $usec2) {
+ *         $fixed_usec = $usec1;
+ *     } else {
+ *         $fixed_usec = -1;
+ *     }
+ *     return $fixed_usec;
+ * }
+ */
+static long get_mock_fraction(zval *time, zval *timezone_obj TSRMLS_DC)
+{
+	zval *dt1, *dt2, *usec1, *usec2;
+	long fixed_usec;
+	zval u_str;
+
+	if (timezone_obj == NULL || Z_TYPE_P(timezone_obj) == IS_NULL) {
+		timecop_call_orig_method_with_1_params(NULL, NULL, NULL, "date_create", &dt1, time);
+	} else {
+		timecop_call_orig_method_with_2_params(NULL, NULL, NULL, "date_create", &dt1, time, timezone_obj);
+	}
+	if (Z_TYPE_P(dt1) == IS_BOOL && !Z_BVAL_P(time)) {
+		return -1;
+	}
+	if (timezone_obj == NULL || Z_TYPE_P(timezone_obj) == IS_NULL) {
+		timecop_call_orig_method_with_1_params(NULL, NULL, NULL, "date_create", &dt2, time);
+	} else {
+		timecop_call_orig_method_with_2_params(NULL, NULL, NULL, "date_create", &dt2, time, timezone_obj);
+	}
+	if (Z_TYPE_P(dt2) == IS_BOOL && !Z_BVAL_P(time)) {
+		zval_ptr_dtor(&dt1);
+		return -1;
+	}
+	INIT_ZVAL(u_str);
+	ZVAL_STRING(&u_str, "u", 0);
+	zend_call_method_with_1_params(&dt1, TIMECOP_G(ce_DateTime), NULL, "format", &usec1, &u_str);
+	zend_call_method_with_1_params(&dt2, TIMECOP_G(ce_DateTime), NULL, "format", &usec2, &u_str);
+	convert_to_long(usec1);
+	convert_to_long(usec2);
+
+	if (Z_LVAL_P(usec1) == Z_LVAL_P(usec2)) {
+		fixed_usec = Z_LVAL_P(usec1);
+	} else {
+		fixed_usec = -1;
+	}
+	zval_ptr_dtor(&dt1);
+	zval_ptr_dtor(&dt2);
+	zval_ptr_dtor(&usec1);
+	zval_ptr_dtor(&usec2);
+
+	return fixed_usec;
 }
 
 static void _timecop_call_function(INTERNAL_FUNCTION_PARAMETERS, const char *function_name, int index_to_fill_timestamp)
@@ -1180,17 +1220,6 @@ PHP_FUNCTION(timecop_gmstrftime)
 }
 /* }}} */
 
-static inline int get_mock_timestamp(long *fixed_timestamp TSRMLS_DC)
-{
-	tc_timeval tv;
-	int ret;
-	ret = get_mock_time(&tv, NULL TSRMLS_CC);
-	if (ret == 0) {
-		*fixed_timestamp = tv.sec;
-	}
-	return ret;
-}
-
 /*
  * get_mock_time(fixed, now)
  *
@@ -1232,6 +1261,17 @@ static int get_mock_time(tc_timeval *fixed, const tc_timeval *now TSRMLS_DC)
 		}
 	}
 	return 0;
+}
+
+static inline int get_mock_timestamp(long *fixed_timestamp TSRMLS_DC)
+{
+	tc_timeval tv;
+	int ret;
+	ret = get_mock_time(&tv, NULL TSRMLS_CC);
+	if (ret == 0) {
+		*fixed_timestamp = tv.sec;
+	}
+	return ret;
 }
 
 static int get_time_from_datetime(tc_timeval *tp, zval *dt TSRMLS_DC)
