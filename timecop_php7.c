@@ -21,6 +21,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include "ext/standard/info.h"
 #include "ext/date/php_date.h"
 
+#if !defined(PHP_VERSION_ID) || PHP_VERSION_ID < 50300
+#include "ext/date/lib/timelib.h"
+#endif
+
 #include "php_timecop.h"
 
 #ifdef ZFS
@@ -29,11 +33,19 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ZEND_DECLARE_MODULE_GLOBALS(timecop)
 
+#if ZEND_MODULE_API_NO < 20151012
+static void timecop_globals_ctor(zend_timecop_globals *globals TSRMLS_DC) {
+#else
 static void timecop_globals_ctor(zend_timecop_globals *globals) {
+#endif
 	/* Initialize your global struct */
 	globals->func_override = 1;
 	globals->sync_request_time = 1;
+#if ZEND_MODULE_API_NO < 20151012
+	globals->orig_request_time = NULL;
+#else
 	ZVAL_NULL(&globals->orig_request_time);
+#endif
 	globals->timecop_mode = TIMECOP_MODE_REALTIME;
 	globals->freezed_time.sec = 0;
 	globals->freezed_time.usec = 0;
@@ -67,15 +79,21 @@ static const struct timecop_override_func_entry timecop_override_func_table[] = 
 #endif
 	TIMECOP_OFE("unixtojd"),
 	TIMECOP_OFE("date_create"),
+#if PHP_VERSION_ID >= 50300
 	TIMECOP_OFE("date_create_from_format"),
+#endif
+#if PHP_VERSION_ID >= 50500
 	TIMECOP_OFE("date_create_immutable"),
 	TIMECOP_OFE("date_create_immutable_from_format"),
+#endif
 	{NULL, NULL, NULL}
 };
 
 static const struct timecop_override_class_entry timecop_override_class_table[] = {
 	TIMECOP_OCE("datetime", "__construct"),
+#if PHP_VERSION_ID >= 50500
 	TIMECOP_OCE("datetimeimmutable", "__construct"),
+#endif
 	{NULL, NULL, NULL, NULL}
 };
 
@@ -173,11 +191,22 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_timecop_date_create, 0, 0, 0)
 	ZEND_ARG_INFO(0, object)
 ZEND_END_ARG_INFO()
 
+#if PHP_VERSION_ID >= 50300
 ZEND_BEGIN_ARG_INFO_EX(arginfo_timecop_date_create_from_format, 0, 0, 2)
 	ZEND_ARG_INFO(0, format)
 	ZEND_ARG_INFO(0, time)
 	ZEND_ARG_INFO(0, object)
 ZEND_END_ARG_INFO()
+#endif
+
+#if !defined(PHP_VERSION_ID) || PHP_VERSION_ID < 50300
+ZEND_BEGIN_ARG_INFO_EX(arginfo_timecop_date_method_timestamp_set, 0, 0, 1)
+        ZEND_ARG_INFO(0, unixtimestamp)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO(arginfo_timecop_date_method_timestamp_get, 0)
+ZEND_END_ARG_INFO()
+#endif
 
 /* {{{ timecop_functions[] */
 const zend_function_entry timecop_functions[] = {
@@ -202,9 +231,13 @@ const zend_function_entry timecop_functions[] = {
 #endif
 	PHP_FE(timecop_unixtojd, arginfo_timecop_unixtojd)
 	PHP_FE(timecop_date_create, arginfo_timecop_date_create)
+#if PHP_VERSION_ID >= 50300
 	PHP_FE(timecop_date_create_from_format, arginfo_timecop_date_create_from_format)
+#endif
+#if PHP_VERSION_ID >= 50500
 	PHP_FE(timecop_date_create_immutable, arginfo_timecop_date_create)
 	PHP_FE(timecop_date_create_immutable_from_format, arginfo_timecop_date_create_from_format)
+#endif
 	{NULL, NULL, NULL}
 };
 /* }}} */
@@ -223,8 +256,16 @@ static zend_function_entry timecop_funcs_timecop[] = {
 static zend_function_entry timecop_funcs_date[] = {
 	PHP_ME(TimecopDateTime, __construct, arginfo_timecop_date_create,
 		   ZEND_ACC_CTOR | ZEND_ACC_PUBLIC)
+#if PHP_VERSION_ID >= 50300
 	PHP_ME_MAPPING(createFromFormat, timecop_date_create_from_format, arginfo_timecop_date_create_from_format,
 				   ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+#endif
+#if !defined(PHP_VERSION_ID) || PHP_VERSION_ID < 50300
+    PHP_ME(TimecopDateTime, getTimestamp,
+                    arginfo_timecop_date_method_timestamp_get, 0)
+    PHP_ME(TimecopDateTime, setTimestamp,
+                    arginfo_timecop_date_method_timestamp_set, 0)
+#endif
 	{NULL, NULL, NULL}
 };
 
@@ -234,6 +275,7 @@ static zend_function_entry timecop_funcs_orig_date[] = {
 	{NULL, NULL, NULL}
 };
 
+#if PHP_VERSION_ID >= 50500
 static zend_function_entry timecop_funcs_immutable[] = {
 	PHP_ME(TimecopDateTimeImmutable, __construct, arginfo_timecop_date_create,
 		   ZEND_ACC_CTOR | ZEND_ACC_PUBLIC)
@@ -247,6 +289,7 @@ static zend_function_entry timecop_funcs_orig_immutable[] = {
 		   ZEND_ACC_CTOR | ZEND_ACC_PUBLIC)
 	{NULL, NULL, NULL}
 };
+#endif
 
 #define MKTIME_NUM_ARGS 6
 
@@ -256,6 +299,54 @@ static zend_function_entry timecop_funcs_orig_immutable[] = {
 #define TIMECOP_CALL_MKTIME(mktime_func_name, date_func_name) \
 	_timecop_call_mktime(INTERNAL_FUNCTION_PARAM_PASSTHRU, ORIG_FUNC_NAME(mktime_func_name), ORIG_FUNC_NAME(date_func_name));
 
+#if !defined(PHP_VERSION_ID) || PHP_VERSION_ID < 50300
+#define DATE_CHECK_INITIALIZED(member, class_name) \
+        if (!(member)) { \
+                php_error_docref(NULL TSRMLS_CC, E_WARNING, "The " #class_name " object has not been correctly initialized by its constructor"); \
+                RETURN_FALSE; \
+        }
+
+typedef struct _php_date_obj php_date_obj;
+
+struct _php_date_obj {
+        zend_object   std;
+        timelib_time *time;
+};
+#endif
+
+#if ZEND_MODULE_API_NO < 20151012
+static void timecop_globals_ctor(zend_timecop_globals *globals TSRMLS_DC);
+
+static int register_timecop_classes(TSRMLS_D);
+static int timecop_func_override(TSRMLS_D);
+static int timecop_class_override(TSRMLS_D);
+static int timecop_func_override_clear(TSRMLS_D);
+static int timecop_class_override_clear(TSRMLS_D);
+
+static int update_request_time(long unixtime TSRMLS_DC);
+static int restore_request_time(TSRMLS_D);
+
+static long mocked_timestamp();
+
+static int fill_mktime_params(zval ***params, const char *date_function_name, int from TSRMLS_DC);
+static int get_formatted_mock_time(zval *time, zval *timezone_obj, zval **retval_time, zval **retval_timezone TSRMLS_DC);
+
+static void _timecop_call_function(INTERNAL_FUNCTION_PARAMETERS, const char *function_name, int index_to_fill_timestamp);
+static void _timecop_call_mktime(INTERNAL_FUNCTION_PARAMETERS, const char *mktime_function_name, const char *date_function_name);
+
+static int get_mock_time(tc_timeval *fixed, const tc_timeval *now TSRMLS_DC);
+static inline int get_mock_timestamp(long *fixed_timestamp TSRMLS_DC);
+
+static int get_time_from_datetime(tc_timeval *tp, zval *dt TSRMLS_DC);
+static int get_current_time(tc_timeval *now TSRMLS_DC);
+
+static inline void timecop_call_original_constructor(zval **obj, zend_class_entry *ce, zval ***params, int param_count TSRMLS_DC);
+static inline void timecop_call_constructor(zval **obj, zend_class_entry *ce, zval ***params, int param_count TSRMLS_DC);
+static void timecop_call_constructor_ex(zval **obj, zend_class_entry *ce, zval ***params, int param_count, int call_original TSRMLS_DC);
+
+static void simple_call_function(const char *function_name, zval **retval_ptr_ptr, zend_uint param_count, zval **params[] TSRMLS_DC);
+static zval *php_timecop_date_instantiate(zend_class_entry *pce, zval *object TSRMLS_DC);
+#else
 static void timecop_globals_ctor(zend_timecop_globals *globals);
 
 static int register_timecop_classes();
@@ -285,6 +376,7 @@ static inline void timecop_call_original_constructor(zval *obj, zend_class_entry
 static inline void timecop_call_constructor(zval *obj, zend_class_entry *ce, zval *params, int param_count);
 static void timecop_call_constructor_ex(zval *obj, zend_class_entry *ce, zval *params, int param_count, int call_original);
 static void simple_call_function(const char *function_name, zval *retval_ptr, uint32_t param_count, zval params[]);
+#endif
 
 /* {{{ timecop_module_entry
  */
@@ -329,7 +421,11 @@ PHP_MINIT_FUNCTION(timecop)
 {
 	ZEND_INIT_MODULE_GLOBALS(timecop, timecop_globals_ctor, NULL);
 	REGISTER_INI_ENTRIES();
+#if ZEND_MODULE_API_NO < 20151012
+	register_timecop_classes(TSRMLS_C);
+#else
 	register_timecop_classes();
+#endif
 	return SUCCESS;
 }
 /* }}} */
@@ -351,10 +447,17 @@ PHP_RINIT_FUNCTION(timecop)
 #endif
 
 	if (TIMECOP_G(func_override)) {
+#if ZEND_MODULE_API_NO < 20151012
+		if (SUCCESS != timecop_func_override(TSRMLS_C) ||
+			SUCCESS != timecop_class_override(TSRMLS_C)) {
+			return FAILURE;
+		}
+#else
 		if (SUCCESS != timecop_func_override() ||
 			SUCCESS != timecop_class_override()) {
 			return FAILURE;
 		}
+#endif
 	}
 
 	return SUCCESS;
@@ -364,7 +467,17 @@ PHP_RINIT_FUNCTION(timecop)
 /* {{{ PHP_RSHUTDOWN_FUNCTION(timecop) */
 PHP_RSHUTDOWN_FUNCTION(timecop)
 {
-	if (TIMECOP_G(func_override)) {
+#if ZEND_MODULE_API_NO < 20151012
+    if (TIMECOP_G(func_override)) {
+        timecop_func_override_clear(TSRMLS_C);
+        timecop_class_override_clear(TSRMLS_C);
+    }
+
+    if (TIMECOP_G(orig_request_time)) {
+        restore_request_time(TSRMLS_C);
+    }
+#else
+    if (TIMECOP_G(func_override)) {
 		timecop_func_override_clear();
 		timecop_class_override_clear();
 	}
@@ -372,6 +485,7 @@ PHP_RSHUTDOWN_FUNCTION(timecop)
 	if (Z_TYPE(TIMECOP_G(orig_request_time)) == IS_NULL) {
 		restore_request_time();
 	}
+#endif
 
 	TIMECOP_G(timecop_mode) = TIMECOP_MODE_REALTIME;
 	TIMECOP_G(scaling_factor) = 1;
@@ -394,6 +508,77 @@ PHP_MINFO_FUNCTION(timecop)
 }
 /* }}} */
 
+#if ZEND_MODULE_API_NO < 20151012
+static int register_timecop_classes(TSRMLS_D)
+{
+	zend_class_entry **pce;
+	zend_class_entry ce;
+	zend_class_entry *tmp, *date_ce, *immutable_ce = NULL, *interface_ce = NULL;
+
+	if (zend_hash_find(CG(class_table), "datetime", sizeof("datetime"), (void **) &pce) == FAILURE) {
+		/* DateTime must be initialized before */
+		php_error_docref("https://github.com/hnw/php-timecop" TSRMLS_CC, E_WARNING,
+				"timecop couldn't find class %s.", "DateTime");
+		return SUCCESS;
+	}
+	date_ce = *pce;
+
+#if PHP_VERSION_ID >= 50500
+	if (zend_hash_find(CG(class_table), "datetimeimmutable", sizeof("datetimeimmutable"), (void **) &pce) == FAILURE) {
+		/* DateTimeImmutable must be initialized before */
+		php_error_docref("https://github.com/hnw/php-timecop" TSRMLS_CC, E_WARNING,
+						 "timecop couldn't find class %s.", "DateTimeImmutable");
+		return SUCCESS;
+	}
+	immutable_ce = *pce;
+
+	if (zend_hash_find(CG(class_table), "datetimeinterface", sizeof("datetimeinterface"), (void **) &pce) == FAILURE) {
+		/* DateTimeInterface must be initialized before */
+		php_error_docref("https://github.com/hnw/php-timecop" TSRMLS_CC, E_WARNING,
+						 "timecop couldn't find interface %s.", "DateTimeInterface");
+		return SUCCESS;
+	}
+	interface_ce = *pce;
+#endif
+
+	INIT_CLASS_ENTRY(ce, "Timecop", timecop_funcs_timecop);
+	zend_register_internal_class(&ce TSRMLS_CC);
+
+	if (interface_ce) {
+		TIMECOP_G(ce_DateTimeInterface) = interface_ce;
+	} else {
+		TIMECOP_G(ce_DateTimeInterface) = date_ce;
+	}
+
+	/* replace DateTime */
+	INIT_CLASS_ENTRY(ce, "TimecopDateTime", timecop_funcs_date);
+	tmp = zend_register_internal_class_ex(&ce, date_ce, NULL TSRMLS_CC);
+	tmp->create_object = date_ce->create_object;
+
+	TIMECOP_G(ce_DateTime) = date_ce;
+	TIMECOP_G(ce_TimecopDateTime) = tmp;
+
+	INIT_CLASS_ENTRY(ce, "TimecopOrigDateTime", timecop_funcs_orig_date);
+	tmp = zend_register_internal_class_ex(&ce, date_ce, NULL TSRMLS_CC);
+	tmp->create_object = date_ce->create_object;
+
+#if PHP_VERSION_ID >= 50500
+	/* replace DateTimeImmutable */
+	INIT_CLASS_ENTRY(ce, "TimecopDateTimeImmutable", timecop_funcs_immutable);
+	tmp = zend_register_internal_class_ex(&ce, immutable_ce, NULL TSRMLS_CC);
+	tmp->create_object = immutable_ce->create_object;
+
+	TIMECOP_G(ce_DateTimeImmutable) = immutable_ce;
+	TIMECOP_G(ce_TimecopDateTimeImmutable) = tmp;
+
+	INIT_CLASS_ENTRY(ce, "TimecopOrigDateTimeImmutable", timecop_funcs_orig_immutable);
+	tmp = zend_register_internal_class_ex(&ce, immutable_ce, NULL TSRMLS_CC);
+	tmp->create_object = immutable_ce->create_object;
+#endif
+
+	return SUCCESS;
+}
+#else
 static int register_timecop_classes()
 {
 	zend_class_entry ce;
@@ -454,6 +639,7 @@ static int register_timecop_classes()
 
 	return SUCCESS;
 }
+#endif
 
 static int timecop_func_override()
 {

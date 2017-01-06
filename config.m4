@@ -36,7 +36,7 @@ if test "$PHP_TIMECOP" != "no"; then
   fi
 
   if test "$PHP_MAJOR_VERSION" -eq 5; then
-    PHP_NEW_EXTENSION(timecop, timecop_php5.c tc_timeval.c, $ext_shared)
+    PHP_NEW_EXTENSION(timecop, timecop_php7.c tc_timeval.c, $ext_shared)
   else
     PHP_NEW_EXTENSION(timecop, timecop_php7.c tc_timeval.c, $ext_shared)
   fi
