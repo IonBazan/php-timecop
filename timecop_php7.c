@@ -276,10 +276,10 @@ static long get_mock_fraction(zval *time, zval *timezone_obj);
 static void _timecop_call_function(INTERNAL_FUNCTION_PARAMETERS, const char *function_name, int index_to_fill_timestamp);
 static void _timecop_call_mktime(INTERNAL_FUNCTION_PARAMETERS, const char *mktime_function_name, const char *date_function_name);
 
-static int get_mock_time(tc_timeval *fixed, const tc_timeval *now);
+static int get_mock_timeval(tc_timeval *fixed, const tc_timeval *now);
 static inline int get_mock_timestamp(zend_long *fixed_timestamp);
 
-static int get_time_from_datetime(tc_timeval *tp, zval *dt);
+static int get_timeval_from_datetime(tc_timeval *tp, zval *dt);
 static int get_current_time(tc_timeval *now);
 
 static inline void timecop_call_original_constructor(zval *obj, zend_class_entry *ce, zval *params, int param_count);
@@ -720,7 +720,7 @@ static int fill_mktime_params(zval *fill_params, const char *date_function_name,
  *     if ($time === null || $time === false || $time === "") {
  *         $time = "now";
  *     }
- *     $now = get_mock_time();
+ *     $now = get_mock_timeval();
  *     if ($timezone_obj) {
  *         // save default timezone
  *         $zonename = $timezone_obj->getName()
@@ -766,7 +766,7 @@ static int get_formatted_mock_time(zval *time, zval *timezone_obj, zval *retval_
 		time = &str_now;
 	}
 
-	get_mock_time(&now, NULL);
+	get_mock_timeval(&now, NULL);
 
 	if (timezone_obj && Z_TYPE_P(timezone_obj) == IS_OBJECT) {
 		zval zonename;
@@ -956,7 +956,7 @@ PHP_FUNCTION(timecop_freeze)
 	tc_timeval freezed_tv;
 
 	if (zend_parse_parameters_ex(ZEND_PARSE_PARAMS_QUIET, ZEND_NUM_ARGS(), "O", &dt, TIMECOP_G(ce_DateTimeInterface)) != FAILURE) {
-		get_time_from_datetime(&freezed_tv, dt);
+		get_timeval_from_datetime(&freezed_tv, dt);
 	} else if (zend_parse_parameters_ex(ZEND_PARSE_PARAMS_QUIET, ZEND_NUM_ARGS(), "l", &timestamp) != FAILURE) {
 		freezed_tv.sec = timestamp;
 		freezed_tv.usec = 0;
@@ -985,7 +985,7 @@ PHP_FUNCTION(timecop_travel)
 	tc_timeval now, mock_tv;
 
 	if (zend_parse_parameters_ex(ZEND_PARSE_PARAMS_QUIET, ZEND_NUM_ARGS(), "O", &dt, TIMECOP_G(ce_DateTimeInterface)) != FAILURE) {
-		get_time_from_datetime(&mock_tv, dt);
+		get_timeval_from_datetime(&mock_tv, dt);
 	} else if (zend_parse_parameters_ex(ZEND_PARSE_PARAMS_QUIET, ZEND_NUM_ARGS(), "l", &timestamp) != FAILURE) {
 		mock_tv.sec = timestamp;
 		mock_tv.usec = 0;
@@ -1021,7 +1021,7 @@ PHP_FUNCTION(timecop_scale)
 		RETURN_FALSE;
 	}
 	get_current_time(&now);
-	get_mock_time(&mock_time, &now);
+	get_mock_timeval(&mock_time, &now);
 	TIMECOP_G(timecop_mode) = TIMECOP_MODE_TRAVEL;
 	TIMECOP_G(travel_origin) = now;
 	tc_timeval_sub(&TIMECOP_G(travel_offset), &mock_time, &now);
@@ -1139,7 +1139,7 @@ PHP_FUNCTION(timecop_gmstrftime)
 /* }}} */
 
 /*
- * get_mock_time(fixed, now)
+ * get_mock_timeval(fixed, now)
  *
  *
  *               delta
@@ -1155,7 +1155,7 @@ PHP_FUNCTION(timecop_gmstrftime)
  * delta = orig_time - travel_origin
  * traveled_time = travel_origin + travel_offset + delta * scaling_factor
  */
-static int get_mock_time(tc_timeval *fixed, const tc_timeval *now)
+static int get_mock_timeval(tc_timeval *fixed, const tc_timeval *now)
 {
 	if (TIMECOP_G(timecop_mode) == TIMECOP_MODE_FREEZE) {
 		*fixed = TIMECOP_G(freezed_time);
@@ -1185,14 +1185,14 @@ static inline int get_mock_timestamp(zend_long *fixed_timestamp)
 {
 	tc_timeval tv;
 	int ret;
-	ret = get_mock_time(&tv, NULL);
+	ret = get_mock_timeval(&tv, NULL);
 	if (ret == 0) {
 		*fixed_timestamp = tv.sec;
 	}
 	return ret;
 }
 
-static int get_time_from_datetime(tc_timeval *tp, zval *dt)
+static int get_timeval_from_datetime(tc_timeval *tp, zval *dt)
 {
 	zval sec, usec;
 	zval u_str;
@@ -1245,7 +1245,7 @@ static void _timecop_gettimeofday(INTERNAL_FUNCTION_PARAMETERS, int mode)
 		RETURN_FALSE;
 	}
 
-	if (get_mock_time(&fixed, NULL)) {
+	if (get_mock_timeval(&fixed, NULL)) {
 		RETURN_FALSE;
 	}
 
@@ -1337,11 +1337,30 @@ PHP_FUNCTION(timecop_date_create)
    Returns new DateTime object initialized with traveled time */
 PHP_FUNCTION(timecop_date_create_from_format)
 {
+	zval dt, now_timestamp, fixed_format, fixed_time;
+	zend_string *new_format;
+
 	zval *timezone_object = NULL;
 	zend_string *orig_format, *orig_time, *format, *time;
 	zval *params;
 	char now_format[]="Y-m-d H:i:s.u", now_time[]="2015-02-03 04:05:06.780000";
 
+	params = (zval *)safe_emalloc(ZEND_NUM_ARGS(), sizeof(zval), 0);
+	if (zend_get_parameters_array_ex(ZEND_NUM_ARGS(), params) == FAILURE) {
+		efree(params);
+		return;
+	}
+	_call_function_with_params(ORIG_FUNC_NAME("date_create_from_format"), &dt, ZEND_NUM_ARGS(), params);
+	ZVAL_LONG(&now_timestamp, mocked_timestamp());
+	zend_call_method_with_1_params(&dt, TIMECOP_G(ce_DateTime), NULL, "settimestamp", NULL, &now_timestamp);
+	ZVAL_STRING(&fixed_format, "Y-m-d H:i:s.u ");
+	zend_call_method_with_1_params(&dt, TIMECOP_G(ce_DateTime), NULL, "format", &fixed_time, &fixed_format);
+
+	zend_string *s;
+	s = zend_string_init("foo", 3, 0);
+	s = zend_string_truncate(s, 4, 0);
+	
+	/*
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "SS|O", &orig_format, &orig_time, &timezone_object, php_date_get_timezone_ce()) == FAILURE) {
 		RETURN_FALSE;
 	}
@@ -1367,6 +1386,8 @@ PHP_FUNCTION(timecop_date_create_from_format)
 	zval_ptr_dtor(&params[0]);
 	zval_ptr_dtor(&params[1]);
 	efree(params);
+	*/
+
 }
 /* }}} */
 

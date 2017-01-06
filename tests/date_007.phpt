@@ -1,5 +1,5 @@
 --TEST--
-Test for timecop_date_create_from_format
+Test for timecop_date_create_from_format()
 --SKIPIF--
 <?php
 $required_version = "5.3.4";
@@ -11,46 +11,47 @@ date.timezone=America/Los_Angeles
 timecop.func_override=0
 --FILE--
 <?php
-timecop_freeze(new DateTime("2010-01-02 03:04:05"));
-
-// checking class name of instance
-$dt0 = timecop_date_create_from_format("","");
-var_dump(get_class($dt0));
-$dt1 = TimecopDateTime::createFromFormat("", "");
-var_dump(get_class($dt1));
-
-$dts = array(
-    //timecop_date_create_from_format("-", "-"),
-
-    //timecop_date_create_from_format("Y", "1990"),
-
+$tests_args = array(
+    array("-", "-"),
+    array("Y", "1990"),
+    array("H", "05", new DateTimezone("Asia/Tokyo")),
+    array("s", "59"),
     // constuctor with 2 argument(absolute format)
-    timecop_date_create_from_format("Y-m-d H:i:s", "2012-03-31 12:34:56"),
-
+    array("Y-m-d H:i:s", "2012-03-31 12:34:56"),
     // constuctor with 2 argument(including timezone info)
-    timecop_date_create_from_format("Y-m-d H:i:s T", "1970-01-01 19:00:00 EST"),
-
+    array("Y-m-d H:i:s T", "1970-01-01 19:00:00 EST"),
     // constuctor with 2 argument(unix time)
-    timecop_date_create_from_format("U", "86400"),
-
+    array("U", "86400"),
     // constuctor with 3 argument
-    timecop_date_create_from_format("Y-m-d H:i:s", "2012-04-01 00:00:00", new DateTimezone("Asia/Tokyo")),
-
+    array("Y-m-d H:i:s", "2012-04-01 00:00:00", new DateTimezone("Asia/Tokyo")),
 );
 
-foreach ($dts as $dt) {
-    var_dump($dt->format("c"));
-    var_dump($dt->getTimezone()->getName());
+$dt0 = new DateTime("2010-01-02 03:04:05.678");
+foreach ($tests_args as $args) {
+    timecop_freeze($dt0);
+    $dt1 = call_user_func_array("timecop_date_create_from_format", $args);
+    var_dump($dt1->format("Y-m-d H:i:s.uP"));
+    while (true) {
+        /* test for equality between timecop_date_create_from_format() and date_create_from_format() */
+        $start_time = time();
+        timecop_freeze(new DateTime());
+        $dt2 = call_user_func_array("timecop_date_create_from_format", $args);
+        $dt3 = call_user_func_array("date_create_from_format", $args);
+        if ($start_time === time()) {
+            if ($dt2 && $dt3 && ($dt2->format("c") !== $dt3->format("c"))) {
+                printf("date_create_from_format('%s', '%s') is differ from timecop_date_create_from_format() : %s !== %s\n",
+                       $args[0], $args[1], $dt2->format("c"), $dt3->format("c"));
+            }
+            break;
+        }
+    }
 }
-
 --EXPECT--
-string(8) "DateTime"
-string(8) "DateTime"
-string(25) "2012-03-31T12:34:56-07:00"
-string(19) "America/Los_Angeles"
-string(25) "1970-01-01T19:00:00-05:00"
-string(3) "EST"
-string(25) "1970-01-02T00:00:00+00:00"
-string(6) "+00:00"
-string(25) "2012-04-01T00:00:00+09:00"
-string(10) "Asia/Tokyo"
+string(32) "2010-01-02 03:04:05.678000-08:00"
+string(32) "1990-01-02 03:04:05.678000-08:00"
+string(32) "2010-01-02 05:00:00.000000+09:00"
+string(32) "2010-01-02 00:00:59.000000+09:00"
+string(32) "2012-03-31 12:34:56.780000-07:00"
+string(32) "1970-01-01 19:00:00.780000-05:00"
+string(32) "1970-01-02 00:00:00.780000+00:00"
+string(32) "2012-04-01 00:00:00.780000+09:00"
